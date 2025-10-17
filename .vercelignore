@@ -1,0 +1,6 @@
+# Archivos a ignorar en Vercel
+.env.local
+.env
+*.log
+node_modules
+.next/cache
