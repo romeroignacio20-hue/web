@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
-import { siteConfig } from "@/config/site";
 
 // Crear cliente Redis
 const redis = new Redis({
@@ -8,49 +7,101 @@ const redis = new Redis({
   token: process.env.KV_REST_API_TOKEN || "",
 });
 
-// Tipos permitidos para las claves de numbers
-type BusinessType = "Hero" | "GoldenBot" | "Fichas Ya";
+// Tipo para el negocio (ahora solo Grupo Jugando)
+type BusinessType = "Grupo Jugando";
 
 // Interfaz para los datos de negocio
 interface BusinessData {
   clickCount: number;
   uniqueUsers: string[];
   dailyClicks: Record<string, number>;
-  currentNumber?: string;
+  currentNumber?: string | null;
 }
 
-// Interfaz para la configuración del sitio
-interface SiteConfig {
-  whatsappNumbers: {
-    descartableHero: string[];
-    principalGolden: string[];
-  };
-}
+// Números de WhatsApp por defecto
+const DEFAULT_WHATSAPP_NUMBERS = [
+  "https://api.whatsapp.com/send/?phone=5491173651087&text=Hola!+Quiero+un+usuario+porfavor!",
+  "https://api.whatsapp.com/send/?phone=5492915279266&text=Hola!+Quiero+un+usuario+porfavor!"
+];
 
 // Función para obtener los números de WhatsApp actuales
 const getNumbers = async (): Promise<Record<BusinessType, string[]>> => {
     try {
-        // Intentar obtener la configuración de Redis
-        const config = await redis.get<SiteConfig>("site-config");
+        // Intentar obtener los números directamente de Redis
+        const numbers = await redis.get<string[]>("whatsapp-numbers");
         
-        // Si hay configuración en Redis, usarla
-        if (config && config.whatsappNumbers) {
+        // Si hay números en Redis, usarlos
+        if (numbers && Array.isArray(numbers) && numbers.length > 0) {
             return {
-                Hero: config.whatsappNumbers.descartableHero || [],
-                GoldenBot: config.whatsappNumbers.principalGolden || [],
-                "Fichas Ya": config.whatsappNumbers.descartableHero || [],
+                "Grupo Jugando": numbers.filter(Boolean),
             };
         }
     } catch (error) {
         console.error("Error al obtener números de WhatsApp:", error);
     }
     
-    // Usar la configuración por defecto si no hay datos en Redis
+    try {
+        // Guardar los números por defecto en Redis
+        await redis.set("whatsapp-numbers", DEFAULT_WHATSAPP_NUMBERS);
+        console.log("Números de WhatsApp creados en Redis con datos por defecto");
+    } catch (error) {
+        console.error("Error al crear números en Redis:", error);
+    }
+    
+    // Retornar los números por defecto
     return {
-        Hero: siteConfig.whatsappNumbers.descartableHero,
-        GoldenBot: siteConfig.whatsappNumbers.principalGolden,
-        "Fichas Ya": siteConfig.whatsappNumbers.descartableHero,
+        "Grupo Jugando": DEFAULT_WHATSAPP_NUMBERS,
     };
+};
+
+// Función para inicializar datos de negocio si no existen
+const initializeBusinessData = async (business: BusinessType): Promise<BusinessData> => {
+    const statsKey = `stats-${business}`;
+    
+    try {
+        // Intentar obtener datos existentes
+        const existingData = await redis.get<BusinessData>(statsKey);
+        
+        if (existingData) {
+            // Si los datos existen, asegurar que tengan todas las propiedades necesarias
+            const completeData: BusinessData = {
+                clickCount: existingData.clickCount || 0,
+                uniqueUsers: existingData.uniqueUsers || [],
+                dailyClicks: existingData.dailyClicks || {},
+                currentNumber: existingData.currentNumber
+            };
+            
+            // Actualizar en Redis si faltaban propiedades
+            if (!existingData.dailyClicks || !existingData.uniqueUsers) {
+                await redis.set(statsKey, completeData);
+                console.log(`Datos de ${business} actualizados con propiedades faltantes`);
+            }
+            
+            return completeData;
+        }
+        
+        // Si no existen datos, crear datos iniciales
+        const initialData: BusinessData = {
+            clickCount: 0,
+            uniqueUsers: [],
+            dailyClicks: {}
+        };
+        
+        await redis.set(statsKey, initialData);
+        console.log(`Datos iniciales creados para ${business}`);
+        
+        return initialData;
+        
+    } catch (error) {
+        console.error(`Error al inicializar datos para ${business}:`, error);
+        
+        // Retornar datos por defecto en caso de error
+        return {
+            clickCount: 0,
+            uniqueUsers: [],
+            dailyClicks: {}
+        };
+    }
 };
 
 // Nuevo endpoint para obtener clicks individuales
@@ -58,7 +109,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const business = searchParams.get('business');
     const limit = parseInt(searchParams.get('limit') || '1000', 10);
-    if (!business || !(business === "Hero" || business === "GoldenBot" || business === "Fichas Ya")) {
+    if (!business || business !== "Grupo Jugando") {
         return NextResponse.json({ error: "Negocio no válido" }, { status: 400 });
     }
     const clicksListKey = `clicks-${business}`;
@@ -88,18 +139,13 @@ export async function GET(request: NextRequest) {
 
         // Obtener currentNumber (igual que en GET_STATS)
         const numbers = await getNumbers();
-        const statsKey = `stats-${business}`;
-        const businessData = await redis.get<BusinessData>(statsKey) || { 
-            clickCount: 0, 
-            uniqueUsers: [], 
-            dailyClicks: {} 
-        };
+        const businessData = await initializeBusinessData(business as BusinessType);
         const numberIndex = numbers[business as BusinessType].length > 0 
             ? businessData.clickCount % numbers[business as BusinessType].length 
             : 0;
         const currentNumber = numbers[business as BusinessType].length > 0 
             ? numbers[business as BusinessType][numberIndex]
-            : "";
+            : null;
 
         return NextResponse.json({ clicks, currentNumber });
     } catch (error) {
@@ -119,7 +165,7 @@ export async function POST(request: NextRequest) {
             !business ||
             typeof userId !== "string" ||
             typeof business !== "string" ||
-            !(business === "Hero" || business === "GoldenBot" || business === "Fichas Ya")
+            business !== "Grupo Jugando"
         ) {
             return NextResponse.json({ error: "Datos inválidos o negocio no válido" }, { status: 400 });
         }
@@ -129,13 +175,8 @@ export async function POST(request: NextRequest) {
         // Obtener números actuales
         const numbers = await getNumbers();
         
-        // Obtener datos actuales desde Redis
-        const statsKey = `stats-${businessKey}`;
-        const businessData = await redis.get<BusinessData>(statsKey) || { 
-            clickCount: 0, 
-            uniqueUsers: [], 
-            dailyClicks: {} 
-        };
+        // Obtener o inicializar datos del negocio
+        const businessData = await initializeBusinessData(businessKey);
         
         // Obtener la fecha actual en formato YYYY-MM-DD
         const today = new Date().toISOString().split('T')[0];
@@ -172,7 +213,7 @@ export async function POST(request: NextRequest) {
         // Usar el enlace tal como está, sin formatear
         const currentNumber = numbers[businessKey].length > 0 
             ? numbers[businessKey][numberIndex]
-            : "";
+            : null;
         
         businessData.currentNumber = currentNumber;
         
@@ -188,6 +229,7 @@ export async function POST(request: NextRequest) {
         await redis.lpush(clicksListKey, JSON.stringify(clickEvent));
 
         // Guardar datos agregados para eficiencia
+        const statsKey = `stats-${businessKey}`;
         await redis.set(statsKey, businessData);
         
         return NextResponse.json({

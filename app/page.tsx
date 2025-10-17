@@ -19,7 +19,7 @@ export default function GoldenBot() {
   useEffect(() => {
     const fetchCurrentNumber = async () => {
       try {
-        const response = await fetch("/api/clicks-redis?business=GoldenBot", {
+        const response = await fetch("/api/clicks-redis?business=Grupo Jugando", {
           method: "GET",
         });
 

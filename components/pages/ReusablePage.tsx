@@ -25,14 +25,9 @@ export default function ReusablePage({
     const [currentWhatsappLink, setCurrentWhatsappLink] = useState(whatsappLink);
     
     // Mapeo de nombres de display a nombres de API
-    const getApiBusinessName = (displayName: string): string => {
-        const businessMap: Record<string, string> = {
-            "Grupo Jugando": "GoldenBot",
-            "Hero": "Hero",
-            "Fichas Ya": "Fichas Ya",
-            "GoldenBot": "GoldenBot"
-        };
-        return businessMap[displayName] || "GoldenBot"; // Default a GoldenBot si no se encuentra
+    const getApiBusinessName = (): string => {
+        // Ahora todo se mapea a "Grupo Jugando"
+        return "Grupo Jugando";
     };
     // Función separada para manejar solo la analítica
     const handleClickAnalytics = async () => {
@@ -49,7 +44,7 @@ export default function ReusablePage({
 
         const body = JSON.stringify({
             userId: uniqueId,
-            business: getApiBusinessName(businessName),
+            business: getApiBusinessName(),
             timestamp: timestamp
         });
 
@@ -78,7 +73,7 @@ export default function ReusablePage({
     // Función para obtener el siguiente número de WhatsApp
     const getNextWhatsappNumber = async () => {
         try {
-            const response = await fetch(`/api/clicks-redis?business=${getApiBusinessName(businessName)}`, {
+            const response = await fetch(`/api/clicks-redis?business=${getApiBusinessName()}`, {
                 method: "GET",
             });
 
@@ -129,7 +124,7 @@ export default function ReusablePage({
                     Jugá tranquilo, nosotros te representamos.
                 </h2>
             </div>
-            {typeof whatsappLink === 'string' && whatsappLink.length > 0 ? (
+            {typeof whatsappLink === 'string' && whatsappLink.length > 0 && whatsappLink !== "" ? (
           <Button 
               variant="outline" 
               className="h-auto  px-8 flex items-center gap-3 rounded-xl text-xl font-bold"
