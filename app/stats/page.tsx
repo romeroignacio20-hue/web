@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 interface Stats {
   clickCount: number;
@@ -24,12 +24,91 @@ export default function StatsPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   
+  // Estados para autenticación
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [password, setPassword] = useState<string>('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authenticating, setAuthenticating] = useState<boolean>(false);
+  
   // Estados para edición
   const [whatsappConfig, setWhatsappConfig] = useState<WhatsAppConfig>({ whatsappNumbers: [] });
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [editMode, setEditMode] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Funciones de autenticación
+  const checkAuthStatus = useCallback(() => {
+    const token = localStorage.getItem('stats-auth-token');
+    if (token) {
+      // Validar token con el servidor
+      validateToken(token);
+    } else {
+      setAuthLoading(false);
+    }
+  }, []);
+
+  const validateToken = async (token: string) => {
+    try {
+      const response = await fetch('/api/auth-stats', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        setIsAuthenticated(true);
+        setAuthLoading(false);
+      } else {
+        localStorage.removeItem('stats-auth-token');
+        setAuthLoading(false);
+      }
+    } catch (error) {
+      console.error('Error validando token:', error);
+      localStorage.removeItem('stats-auth-token');
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthenticating(true);
+    setAuthError(null);
+
+    try {
+      const response = await fetch('/api/auth-stats', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        localStorage.setItem('stats-auth-token', data.token);
+        setIsAuthenticated(true);
+        setPassword('');
+      } else {
+        setAuthError(data.error || 'Error de autenticación');
+      }
+    } catch (error) {
+      console.error('Error en login:', error);
+      setAuthError('Error de conexión');
+    } finally {
+      setAuthenticating(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('stats-auth-token');
+    setIsAuthenticated(false);
+    setPassword('');
+    setAuthError(null);
+  };
 
   // Función para cargar configuración actual
   const loadConfiguration = async () => {
@@ -161,7 +240,15 @@ export default function StatsPage() {
     }
   };
 
+  // Verificar autenticación al cargar
   useEffect(() => {
+    checkAuthStatus();
+  }, [checkAuthStatus]);
+
+  useEffect(() => {
+    // Solo cargar datos si está autenticado
+    if (!isAuthenticated) return;
+    
     const fetchStats = async () => {
       try {
         // Intentar obtener estadísticas existentes
@@ -259,7 +346,7 @@ export default function StatsPage() {
 
     fetchStats();
     loadConfiguration();
-  }, []);
+  }, [isAuthenticated]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -442,6 +529,81 @@ export default function StatsPage() {
     }
   };
 
+  // Pantalla de carga de autenticación
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Verificando acceso...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Pantalla de login si no está autenticado
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="max-w-md w-full space-y-8">
+          <div>
+            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+              🔐 Acceso a Estadísticas
+            </h2>
+            <p className="mt-2 text-center text-sm text-gray-600">
+              Ingresa la clave para acceder al panel de estadísticas
+            </p>
+          </div>
+          
+          <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+            <div>
+              <label htmlFor="password" className="sr-only">
+                Clave de acceso
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                placeholder="Clave de acceso"
+              />
+            </div>
+
+            {authError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md">
+                {authError}
+              </div>
+            )}
+
+            <div>
+              <button
+                type="submit"
+                disabled={authenticating}
+                className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white transition-colors ${
+                  authenticating
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+                }`}
+              >
+                {authenticating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Verificando...
+                  </>
+                ) : (
+                  'Acceder'
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="container mx-auto p-4">
@@ -477,6 +639,13 @@ export default function StatsPage() {
             }`}
           >
             {refreshing ? 'Actualizando...' : 'Refrescar'}
+          </button>
+          <button
+            onClick={handleLogout}
+            className="px-4 py-2 rounded-lg font-medium bg-gray-600 text-white hover:bg-gray-700 transition-colors"
+            title="Cerrar sesión"
+          >
+            🚪 Salir
           </button>
         </div>
       </div>
