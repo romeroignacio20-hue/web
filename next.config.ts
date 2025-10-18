@@ -1,11 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // Remover 'standalone' para Vercel - usar configuración por defecto
   trailingSlash: false,
-  experimental: {
-    serverComponentsExternalPackages: ['@upstash/redis']
-  },
+  serverExternalPackages: ['@upstash/redis'], // Actualizado según el warning
   env: {
     STATS_PASSWORD: process.env.STATS_PASSWORD,
     KV_REST_API_URL: process.env.KV_REST_API_URL,
