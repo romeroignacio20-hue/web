@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GoldenBot",
+  title: "Grupo Jugando",
   description: "Jugá tranquilo, nosotros te representamos.",
 };
 
